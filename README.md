@@ -103,15 +103,212 @@ In the next Dialog, let’s name our Solution as Microservices.WebApi.
 Visual Studio Creates a new Blank Solution for you. Here, Add a New Folder and Name it Microservices. This is folder where we will add all the Microservices. Right Click on the Microservices folder and add a new Project. Let’s add the Product Microservice First. This is going to be an ASP.NET Core WebApi Project. I will name it Product.Microservice.
 
 ![image](https://user-images.githubusercontent.com/29863643/142732984-0152dfac-1223-47b4-9465-24e530fa4121.png)
-Product.Microservice
+
+Similarly, create a Customer.Microservice Project. Next let’s add the API Gateway.
+
+In the root of the Solution, add new ASP.NET Core Project and name it Gateway.WebApi. This will be an Empty Project, as there will be not much things inside this gateway.
+
+![image](https://user-images.githubusercontent.com/29863643/142733234-e0005d50-174c-4846-a90b-fb5a6a5073a2.png)
+
+![image](https://user-images.githubusercontent.com/29863643/142733240-6419c186-085b-4c47-a4d9-2e2b4cbae1a1.png)
+
+This is how your folder structure will look like.
+
+![image](https://user-images.githubusercontent.com/29863643/142733243-a0bd6aba-b78d-4fd6-8ce2-876d6fbb31b7.png)
+
+
+Basically, all the CRUD Operations related to the Customer goes to the Customer.Microservice and everything related to the Products goes to the Product.Microservice. The Client wil be accessing the gateway’s URL to use the Customer and Product Operatrions. Ideally the Microservices will be something internal and will not be accessible by the public without the help of the API Gateway.
 --------------------------------
 
---------------------------------
+Setting Up The Microservices
+Let me quickly Setup a simple CRUD Operation for both the Microservices. I will be using Entity Framework Core as the Data Access Technology along with a Dedicated Database for each service. Since Creating a CRUD Api is out of scope for this article, i will skip the steps and come to a point where I have both the Microservices ready with CRUD endpoints. It’s also recommended to setup Swagger.
+
+One thing that we need is different database connections for both the Microservices. It’s not mandatory, but it allows you to understand the implementation of Microservices. Here is how the Swagger UI for both the microservices look.
+
+![image](https://user-images.githubusercontent.com/29863643/142733811-3e423f46-ce82-45f8-b8c7-edfed2347da4.png)
+
+
+![image](https://user-images.githubusercontent.com/29863643/142733814-51125cdb-9677-43aa-9c17-e84a164812b1.png)
 
 --------------------------------
+Introduction To Ocelot API Gateway
+Ocelot is an Open Source API Gateway for the .NET/Core Platform. What is does is simple. It cunifies multiple microservices so that the client does not have to worry about the location of each and every Microservice. Ocelot API Gateway transforms the Incoming HTTP Request from the client and forward it to an appropriate Microservice.
 
---------------------------------
+Ocelot is widely used by Microsft and other tech-giants as well for Microservice Management. The latest version of Ocelot targets ASP.NET Core 3.1 and is not suitable for .NET Framework Applications. It will be as easy and installing the Ocelot package to your API Gateway project and setting up a JSON Configuration file that states the upstream and downstream routes.
 
---------------------------------
---------------------------------
+Upstream and Downstream are 2 terms that you have to be clear with. Upstream Request is the Request sent by the Client to the API Gateway. Downstream request is the request sent to the Microservice by the API Gateway. All these are from the perspective of the API Gateway. Let’s see a small Diagram to understand this concept better.
 
+![image](https://user-images.githubusercontent.com/29863643/142734820-86c56a99-5e88-489f-80f4-c25572f57ec3.png)
+
+This will help you understand even more. The API gateway is located at port 5000 , whereas the Microservice Port is at 12345. Now, the client will not have access to port 12345, but only to 5000. Thus, client sends a request to localhost:5000/api/weather to receive the latest weather. Now what the Ocelot API Gateway does is quite interesting. It takes in the incoming request from the client and sends another HTTP Request to the Microsevrice, which in turn returns the required response. Once that is done, the Gateway send the response to the client. Here is localhost:5000 is the upstream path that the client knows of. localhost:123456 is the downstream path that the API Gateways knows about. Makes more sense now, yeah?
+
+In this way, Ocelot API Gateway will be able to re-route various requests from client to all the involved Microservices. We will have to configure all these routes within the API Gateway so that Ocelot knows how and where to route the incoming requests.
+
+Here are few noticable Features of Ocelot
+
+Routing the Incoming Request to the required Microsrvice
+Authentication
+Authorization
+Load Balance for Enterprise Applications.
+--------------------------------
+Building An Ocelot API Gateway
+Navigate to the Gateway.WebApi Project that we had created earlier.
+Firstly, let’s install the Ocelot package.
+
+```ruby
+Install-Package Ocelot
+```
+
+Let’s configure Ocelot to work with our ASP.NET Core 3.1 Application. Go to the Program.cs of the Gateway.WebApi Project and change the CreateHostBuilder method as follows.
+
+```ruby
+public static IHostBuilder CreateHostBuilder(string[] args) =>
+    Host.CreateDefaultBuilder(args)
+        .ConfigureWebHostDefaults(webBuilder =>
+        {
+            webBuilder.UseStartup<Startup>();
+        })
+    .ConfigureAppConfiguration((hostingContext, config) =>
+    {
+        config
+        .SetBasePath(hostingContext.HostingEnvironment.ContentRootPath)
+        .AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
+    });
+```
+
+Since Ocelot reads it’s route configuration from a JSON config file, Line #11 adds the new json file so that the ASP.NET Core 3.1 Application is able to access these settings. Note that we have not yet created the ocelot.json file. We will be doing it once we have configured the Ocelot Middleware.
+
+Next, Navigate to the Startup.cs of the same Gateway.WebApi Project and add Ocelot to the ConfigureServices method.
+
+```ruby
+public void ConfigureServices(IServiceCollection services)
+{
+    services.AddOcelot();
+}
+```
+Finally, go to the Configure method and make the following changes. This adds Ocelot Middleware to the ASP.NET Core 3.1 Application’s Pipeline
+
+
+```ruby
+public async void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+    if (env.IsDevelopment())
+    {
+        app.UseDeveloperExceptionPage();
+    }
+    app.UseRouting();
+    app.UseEndpoints(endpoints =>
+    {
+        endpoints.MapControllers();
+    });
+    await app.UseOcelot();
+}
+```
+Configuring Ocelot Routes
+This is the most important part of this article. Here is where you would configure the Upstream / Downstream routes for the API Gateways, which helps Ocelot to know the routes.
+
+Let’s add a basic route settings, so that we understand how it works. We will start with Product Microservice. Let’s say the client wants to get all the Products via the API Gateway.
+
+First, Using Swagger UI of the Product Microservice, I will add some products randomly. Once that is done, let me check the GET ALL Request via Swagger.
+![image](https://user-images.githubusercontent.com/29863643/142743090-ba03f05c-77e8-44e9-98f1-fea238aeb0cf.png)
+
+Note the URL of the Product Microservice and here is the result as well. For now, we have 3 products coming from the Product Database via Product Microservice.
+
+Create a new JSON file in the root of the Gateways.WebApi Project. This file would contain the configurations needed for Ocelot. We will name this file as ocelot.json , as we have already registered this name back in Program.cs file, remember?
+```ruby
+{
+  "Routes": [
+    {
+      "DownstreamPathTemplate": "/api/product",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 44337
+        }
+      ],
+      "UpstreamPathTemplate": "/gateway/product",
+      "UpstreamHttpMethod": [ "POST", "PUT", "GET" ]
+    }
+  ]
+}
+``
+
+Ocelot takes in an Array of Route Objects.
+As the first element in the array, let’s configure the Product Microservice’s Get All, Update and Insert Endpoints.
+
+DownstreamPathTemplate denotes the route of the actual endpoint in the Microservice.
+DownstreamScheme is the scheme of the Microservice, here it is HTTPS
+DownstreamHostAndPorts defines the location of the Microservice. We will add the host and port number here.
+
+UpstreamPathTemplate is the path at which the client will request the Ocelot API Gateway.
+UpstreamHttpMethod are the supported HTTP Methods to the API Gateway. Based on the Incoming Method, Ocelot sends a similar HTTP method request to the microservice as well.
+
+Let’s test it now. As per as our configuration, we have to request to the Gateway.WebApi that is located at localhost:44382 at the route localhost:44382/gateway/product and we are expecting to get the results directly from the microservice (which is located at localhost:44337).
+
+PS, you can see the Gateway.WebApi‘s Launch URL is the launchsettings.json file found under the Properties drill-down in the Gateway.WebApi project.
+
+![image](https://user-images.githubusercontent.com/29863643/142743487-c33ffedd-0c75-46b9-b7a5-f5889fba523a.png)
+
+
+Build the solution to ensure that there are no errors. Now, there is one thing to change. We have 3 APIs now. Let’s configure the Solution so that all the 3 APIs get fired when you run the application. This is because we will need all the APIs online.
+
+To enable Multiple Startup Projects, Right click on the solution and click on Properties. Here, select the Multiple Startup Projects options and enable all the projects.
+
+![image](https://user-images.githubusercontent.com/29863643/142743504-aa1a9e66-68b0-41ea-bfa4-d7c0288c3a18.png)
+
+Run the Solution and navigate to localhost:44382/gateway/product
+make sure of the port numbers matcjes your application settings
+
+![image](https://user-images.githubusercontent.com/29863643/142743831-46c1ae05-2ec2-47bf-9ba1-780dee5caec2.png)
+
+
+Great, we have successfully implemented API Gateways and made a simple Microservice Architecture in ASP.NET Core for ourselves.
+
+With POSTMAN, you can test the POST and UPDATE methods as well.
+
+But we are still missing GetById and Delete HTTP Methods. We will have to add another route for this, because we are also passing an ID parameter to these endpoints. Understand?
+
+This is how the next route will look like. This is more of a parameter based route with other settings similar to the previous one.
+
+```ruby
+{
+  "Routes": [
+    {
+      "DownstreamPathTemplate": "/api/product",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 44337
+        }
+      ],
+      "UpstreamPathTemplate": "/gateway/product",
+      "UpstreamHttpMethod": [ "POST", "PUT", "GET" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/product/{id}",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 44337
+        }
+      ],
+      "UpstreamPathTemplate": "/gateway/product/{id}",
+      "UpstreamHttpMethod": [ "GET", "DELETE" ]
+    }
+  ]
+}
+```
+Line 16 and 24 – We are accepting an ID Parameter in the route.
+Line 25 – We restrict the methods to just GET and DELETE
+
+Let’s test now. Navigate to localhost:44382/gateway/2
+
+![image](https://user-images.githubusercontent.com/29863643/142743861-afe92f3a-5297-4fbe-a6c4-d200e0e444f2.png)
+
+Works perfectly! yeah?
+
+That’s it. We are done with configuring Ocelot API Gateway to support the Product Microservice. I will leave the configuration of the Customer Microservice to you as a small practise
+--------------------------------
