@@ -316,3 +316,7 @@ That’s it. We are done with configuring Ocelot API Gateway to support the Prod
 [Consider supporting me by buying me a coffee](https://www.buymeacoffee.com/MAhmoudKhalifa)
 ![bmc_qr](https://user-images.githubusercontent.com/29863643/201290985-b519f0ee-a842-414b-b05e-63714b5b8ff3.png)
 
+all the informations is collected from the open source projects and blogs :)
+
+
+
